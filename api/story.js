@@ -1,100 +1,105 @@
-import { io } from "socket.io-client";
+import axios from 'axios'
+import qs from 'qs'
+import spotify from 'spotify-clients'
 
-async function getStories(username) {
-
-  const pageRes = await fetch(`https://anonsaver.com/viewer/${username}/`, {
-    headers: {
-      "User-Agent": "Mozilla/5.0",
-      "Referer": "https://anonsaver.com/",
-    }
-  });
-
-  const cookies = pageRes.headers
-    .getSetCookie()
-    .map(c => c.split(";")[0])
-    .join("; ");
-
-  const tokenRes = await fetch(
-    "https://anonsaver.com/connect/",
-    {
-      headers: {
-        Cookie: cookies,
-        Referer: `https://anonsaver.com/viewer/${username}/`,
-        "User-Agent": "Mozilla/5.0",
-      }
-    }
-  );
-
-  const { token } = await tokenRes.json();
-
-  return new Promise((resolve, reject) => {
-
-    const socket = io("https://anonsaver.com", {
-      reconnection: false,
-      transports: ["polling", "websocket"],
-      extraHeaders: {
-        Cookie: cookies,
-        Referer: `https://anonsaver.com/viewer/${username}/`,
-        "User-Agent": "Mozilla/5.0",
-      }
-    });
-
-    socket.on("connect", () => {
-
-      socket.emit("search", {
-        date: Date.now(),
-        token,
-        requestType: "1",
-        username,
-      });
-
-    });
-
-    socket.on("searchResult", (data) => {
-      socket.disconnect();
-      resolve(data);
-    });
-
-    socket.on("connect_error", reject);
-
-    socket.on("error", reject);
-
-    setTimeout(() => {
-      reject(new Error("Timeout"));
-    }, 15000);
-
-  });
-
+function formatMs(ms) {
+    let minutes = Math.floor(ms / 60000)
+    let seconds = ((ms % 60000) / 1000).toFixed(0)
+    return `${minutes}:${seconds.padStart(2, '0')}`
 }
 
-export default async function handler(req, res) {
+async function spotifyDownload(url) {
+    try {
+        // Obtener token CSRF
+        const getPage = await axios.get('https://spotmate.online/en')
 
-  try {
+        const token = getPage.data.match(
+            /<meta name="csrf-token" content="(.*?)"/
+        )?.[1]
 
-    const { user } = req.query;
+        const cookie = getPage.headers['set-cookie']
+            ?.map(v => v.split(';')[0])
+            .join('; ')
 
-    if (!user) {
-      return res.status(400).json({
-        status: false,
-        message: "Falta el parámetro user"
-      });
+        const client = axios.create({
+            baseURL: 'https://spotmate.online',
+            headers: {
+                'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                'x-csrf-token': token,
+                'x-requested-with': 'XMLHttpRequest',
+                cookie,
+                origin: 'https://spotmate.online',
+                referer: 'https://spotmate.online/en',
+                'user-agent': 'Mozilla/5.0'
+            }
+        })
+
+        // Convertir
+        const convert = await client.post(
+            '/convert',
+            qs.stringify({
+                urls: url
+            })
+        )
+
+        return convert.data
+    } catch (err) {
+        console.log(err)
+        return null
+    }
+}
+
+let handler = async (m, { conn, text }) => {
+
+    if (!text) {
+        return m.reply('Ingresa el nombre de una canción')
     }
 
-    const data = await getStories(user);
+    try {
 
-    return res.status(200).json({
-      status: true,
-      creator: "Jospi",
-      result: data
-    });
+        // Buscar canción
+        const search = await spotify.search(text)
 
-  } catch (err) {
+        if (!search?.tracks?.length) {
+            return m.reply('No encontré esa canción')
+        }
 
-    return res.status(500).json({
-      status: false,
-      error: err.message
-    });
+        const song = search.tracks[0]
 
-  }
+        // Descargar
+        const dl = await spotifyDownload(song.url)
 
+        if (!dl?.url) {
+            return m.reply('Error descargando la canción')
+        }
+
+        let caption = `
+╭━━━〔 SPOTIFY PLAY 〕━━━⬣
+┃🎵 Título: ${song.name}
+┃👤 Artista: ${song.artists.map(v => v.name).join(', ')}
+┃⏱️ Duración: ${formatMs(song.duration_ms)}
+╰━━━━━━━━━━━━━━⬣
+`
+
+        await conn.sendMessage(m.chat, {
+            image: { url: song.album.images[0].url },
+            caption
+        }, { quoted: m })
+
+        await conn.sendMessage(m.chat, {
+            audio: { url: dl.url },
+            mimetype: 'audio/mpeg',
+            ptt: false
+        }, { quoted: m })
+
+    } catch (e) {
+        console.log(e)
+        m.reply('Error al procesar la canción')
+    }
 }
+
+handler.command = ['spotifyplay', 'sp']
+handler.tags = ['downloader']
+handler.help = ['spotifyplay <nombre>']
+
+export default handler

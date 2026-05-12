@@ -1,0 +1,25 @@
+{
+  "name": "spotify-clients",
+  "version": "1.0.0",
+  "description": "Fast, dependency-free wrapper for the Spotify Web API featuring CJS & ESM support.",
+  "main": "index.js",
+  "exports": {
+    ".": {
+      "import": "./index.mjs",
+      "require": "./index.js"
+    }
+  },
+  "scripts": {
+    "test": "node test.js"
+  },
+  "keywords": [
+    "spotify",
+    "api",
+    "downloader",
+    "wrapper",
+    "music",
+    "fetch"
+  ],
+  "author": "",
+  "license": "MIT"
+}
