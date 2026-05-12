@@ -1,4 +1,19 @@
 import { io } from "socket.io-client";
+
+async function getStories(username) {
+
+  const pageRes = await fetch(`https://anonsaver.com/viewer/${username}/`, {
+    headers: {
+      "User-Agent": "Mozilla/5.0",
+      "Referer": "https://anonsaver.com/",
+    }
+  });
+
+  const cookies = pageRes.headers
+    .getSetCookie()
+    .map(c => c.split(";")[0])
+    .join("; ");
+
   const tokenRes = await fetch(
     "https://anonsaver.com/connect/",
     {
@@ -42,12 +57,15 @@ import { io } from "socket.io-client";
 
     socket.on("connect_error", reject);
 
+    socket.on("error", reject);
+
     setTimeout(() => {
       reject(new Error("Timeout"));
     }, 15000);
 
   });
 
+}
 
 export default async function handler(req, res) {
 
@@ -78,4 +96,5 @@ export default async function handler(req, res) {
     });
 
   }
+
 }
